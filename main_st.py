@@ -22,7 +22,7 @@ deepgpet_path = Path(__file__).resolve().parent / 'deepgpet'
 sys.path.insert(0, str(deepgpet_path))
 
 try:
-    from choseg import inference, utils
+    from choseg import inference
 except ImportError as e:
     error_msg = str(e)
     if 'torch' in error_msg:
@@ -150,7 +150,7 @@ class CVIProcessor:
             dtca15, dct15, dcvi15, _, _ = self.get_roi_metrics(global_dlum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 1.5)
             dtca30, dct30, dcvi30, _, dlum30_roi = self.get_roi_metrics(global_dlum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 3.0)
         
-            # Generate Visualization Images for Memory
+            # Generate visualization images for download/preview
             def create_vis_buffer(base_img, l_mask_roi):
                 vis = cv2.cvtColor(base_img, cv2.COLOR_GRAY2RGB)
                 roi_w_px = int(3.0 * scale_px_per_mm_h)
@@ -189,7 +189,33 @@ class CVIProcessor:
 # ==========================================
 # Streamlit UI
 # ==========================================
-st.set_page_config(page_title=APP_NAME, layout="wide")
+# サイドバーの初期状態を設定（画像処理中は自動的に閉じる）
+if 'processing_started' not in st.session_state:
+    st.session_state.processing_started = False
+
+initial_sidebar_state = "collapsed" if st.session_state.processing_started else "expanded"
+st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state=initial_sidebar_state)
+
+# カスタムCSS: 画像の位置を完全に統一
+st.markdown("""
+<style>
+    /* streamlit_image_coordinatesとst.imageの表示位置を統一 */
+    div[data-testid="stImage"],
+    div[data-testid="stImageContainer"] {
+        display: flex !important;
+        justify-content: flex-start !important;
+        align-items: flex-start !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    div[data-testid="stImage"] > img,
+    div[data-testid="stImageContainer"] > img {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # セッション状態初期化
 if 'authenticated' not in st.session_state:
@@ -200,6 +226,16 @@ if 'results' not in st.session_state:
     st.session_state.results = []
 if 'vis_files' not in st.session_state:
     st.session_state.vis_files = {} # filename -> bytes
+if 'input_path' not in st.session_state:
+    st.session_state.input_path = ""
+if 'output_path' not in st.session_state:
+    st.session_state.output_path = ""
+if 'browsing_for' not in st.session_state:
+    st.session_state.browsing_for = None  # "input" or "output"
+if 'current_browse_path' not in st.session_state:
+    st.session_state.current_browse_path = str(Path.home())
+if 'fovea_clicked' not in st.session_state:
+    st.session_state.fovea_clicked = {}  # idx -> (fx, fy)
 
 # --- 認証画面 ---
 if not st.session_state.authenticated:
@@ -230,9 +266,106 @@ with st.sidebar:
             type=['png', 'jpg', 'jpeg', 'tif', 'tiff'], 
             accept_multiple_files=True
         )
+        # File Uploadモードでは出力フォルダー指定なし（Zipダウンロードのみ）
+        output_folder = None
     else:
-        input_folder = st.text_input("Input Folder Path", placeholder="/path/to/input")
-        output_folder = st.text_input("Output Folder Path", placeholder="/path/to/output")
+        st.markdown("**📁 Folder Paths**")
+        
+        # ========== Input Folder Selection ==========
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            input_folder = st.text_input(
+                "Input Folder", 
+                value=st.session_state.input_path,
+                placeholder="/Users/y/Github/input",
+                key="input_folder_text"
+            )
+        with col2:
+            if st.button("📂 Browse", key="browse_input"):
+                st.session_state.browsing_for = "input"
+                st.session_state.current_browse_path = st.session_state.input_path if st.session_state.input_path else str(Path.home())
+        
+        # ========== Output Folder Selection ==========
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            output_folder = st.text_input(
+                "Output Folder", 
+                value=st.session_state.output_path,
+                placeholder="/Users/y/Github/output",
+                key="output_folder_text"
+            )
+        with col2:
+            if st.button("📂 Browse", key="browse_output"):
+                st.session_state.browsing_for = "output"
+                st.session_state.current_browse_path = st.session_state.output_path if st.session_state.output_path else str(Path.home())
+        
+        # ========== Folder Browser Dialog ==========
+        if st.session_state.browsing_for:
+            st.markdown("---")
+            st.markdown(f"### 📂 Select {'Input' if st.session_state.browsing_for == 'input' else 'Output'} Folder")
+            
+            # Quick Access Shortcuts
+            quick_paths = {
+                "🏠 Home": str(Path.home()),
+                "🖥️ Desktop": str(Path.home() / "Desktop"),
+                "📄 Documents": str(Path.home() / "Documents"),
+                "📥 Downloads": str(Path.home() / "Downloads"),
+            }
+            
+            cols = st.columns(len(quick_paths))
+            for idx, (label, path) in enumerate(quick_paths.items()):
+                with cols[idx]:
+                    if st.button(label, key=f"quick_{idx}", use_container_width=True):
+                        st.session_state.current_browse_path = path
+                        st.rerun()
+            
+            # Current Path Display
+            browse_path = Path(st.session_state.current_browse_path)
+            st.text_input("Current Path:", value=str(browse_path), disabled=True, key="current_path_display")
+            
+            # Parent Directory Button
+            if browse_path.parent != browse_path:
+                if st.button("⬆️ Parent Folder", use_container_width=True):
+                    st.session_state.current_browse_path = str(browse_path.parent)
+                    st.rerun()
+            
+            # List subdirectories
+            try:
+                subdirs = sorted([d for d in browse_path.iterdir() if d.is_dir()], key=lambda x: x.name.lower())
+                if subdirs:
+                    st.markdown("**Folders:**")
+                    for subdir in subdirs[:20]:  # Limit to 20 for performance
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            st.text(f"📁 {subdir.name}")
+                        with col2:
+                            if st.button("Open", key=f"open_{subdir.name}"):
+                                st.session_state.current_browse_path = str(subdir)
+                                st.rerun()
+                else:
+                    st.info("No subfolders found")
+            except PermissionError:
+                st.error("❌ Permission denied")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+            
+            # Confirm Selection
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Select This Folder", type="primary", use_container_width=True):
+                    if st.session_state.browsing_for == "input":
+                        st.session_state.input_path = st.session_state.current_browse_path
+                    else:
+                        st.session_state.output_path = st.session_state.current_browse_path
+                    st.session_state.browsing_for = None
+                    st.rerun()
+            with col2:
+                if st.button("❌ Cancel", use_container_width=True):
+                    st.session_state.browsing_for = None
+                    st.rerun()
+            
+            st.markdown("---")
+        
         uploaded_files = []
         if input_folder and os.path.exists(input_folder):
             try:
@@ -249,6 +382,10 @@ with st.sidebar:
                 st.error(f"❌ Error reading folder: {str(e)}")
         elif input_folder:
             st.error(f"❌ Folder path does not exist: {input_folder}")
+        
+        # Folder Batchモードでは出力フォルダーが必須
+        if output_folder and not os.path.exists(output_folder):
+            st.warning(f"⚠️ Output folder will be created: {output_folder}")
     
     scan_w = st.number_input("Scan Width (mm)", value=12.0, min_value=0.1)
     depth_r = st.number_input("Depth Range (mm)", value=2.6, min_value=0.1)
@@ -260,17 +397,14 @@ with st.sidebar:
     if 'processor' in st.session_state:
         st.success("✅ AI Model Loaded")
     else:
-        st.warning("⏳ Model loads on first analysis")
-    
-    # 手動初期化ボタンもオプションとして残す
-    if st.button("Re-initialize AI Model"):
-        with st.spinner("Loading DeepGPET..."):
-            st.session_state.processor = CVIProcessor()
-            st.session_state.processor.initialize_model()
-            st.success("✅ Model Initialized!")
+        st.info("ℹ️ Model will be loaded automatically on first analysis")
 
 # 解析処理
 if uploaded_files:
+    # 画像処理が開始されたことを記録（次回リロード時にサイドバーを閉じる）
+    if not st.session_state.processing_started:
+        st.session_state.processing_started = True
+    
     idx = st.session_state.current_idx
     
     if idx < len(uploaded_files):
@@ -295,32 +429,40 @@ if uploaded_files:
         
         orig_w, orig_h = pil_img.size
         
-        st.info("👆 Click the center of the fovea on the image")
-        
-        # 画像を全幅で表示
-        value = streamlit_image_coordinates(pil_img, key=f"fovea_{idx}", width=orig_w)
-        
-        if value is not None:
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Clicked X", value['x'])
-            with col2:
-                st.metric("Clicked Y", value['y'])
-        
-        # ROIプレビューを追加
-        if value is not None:
-            display_w = value['width']
-            display_h = value['height']
+        # クリック確定前か確定後かで表示を切り替え
+        if idx not in st.session_state.fovea_clicked:
+            # まだクリックしていない場合: 画像全体を表示してクリックを受け付ける
+            st.info("👆 Click the center of the fovea on the image")
+            # 確認画像と同じサイズで表示（一瞬で切り替わるように）
+            value = streamlit_image_coordinates(pil_img, key=f"fovea_{idx}", width=orig_w)
             
-            # Check for zero division
-            if display_w <= 0 or display_h <= 0:
-                st.error("❌ Invalid image display dimensions")
-                st.stop()
+            if value is not None:
+                display_w = value.get('width', orig_w)
+                display_h = value.get('height', orig_h)
+                if not display_w:
+                    display_w = orig_w
+                if not display_h:
+                    display_h = orig_h
+                
+                # Check for zero division
+                if display_w <= 0 or display_h <= 0:
+                    st.error("❌ Invalid image display dimensions")
+                    st.stop()
+                
+                x_click = value.get('x', 0)
+                y_click = value.get('y', 0)
+                fx = int(x_click * (orig_w / display_w))
+                fy = int(y_click * (orig_h / display_h))
+                
+                # クリック位置を保存して画面を再描画
+                st.session_state.fovea_clicked[idx] = (fx, fy)
+                st.rerun()
+        
+        else:
+            # クリック済み: 確認画像とボタンを表示
+            fx, fy = st.session_state.fovea_clicked[idx]
             
-            fx = int(value['x'] * (orig_w / display_w))
-            fy = int(value['y'] * (orig_h / display_h))
-            
-            # ROI範囲を描画したプレビュー画像を作成
+            # ROI範囲を描画した確認画像を作成
             preview_img = np.array(pil_img.convert('RGB'))
             scale_px_per_mm_h = orig_w / scan_w
             
@@ -330,76 +472,158 @@ if uploaded_files:
             roi_end_x = min(orig_w, roi_start_x + roi_width_px)
             
             # ROI範囲を青い線で描画
-            cv2.line(preview_img, (roi_start_x, 0), (roi_start_x, orig_h), (255, 0, 0), 2)
-            cv2.line(preview_img, (roi_end_x, 0), (roi_end_x, orig_h), (255, 0, 0), 2)
+            cv2.line(preview_img, (roi_start_x, 0), (roi_start_x, orig_h), (255, 0, 0), 3)
+            cv2.line(preview_img, (roi_end_x, 0), (roi_end_x, orig_h), (255, 0, 0), 3)
             
             # 中心点を緑の円で描画
-            cv2.circle(preview_img, (fx, fy), 8, (0, 255, 0), -1)
+            cv2.circle(preview_img, (fx, fy), 10, (0, 255, 0), -1)
             
-            st.image(preview_img, caption="ROI Preview (Blue: 3.0mm range, Green: Fovea center)", width=orig_w)
+            st.success("✅ Fovea position selected!")
             
-            if st.button("✅ Confirm & Analyze", type="primary"):
-                # --- Auto-initialization logic ---
-                if 'processor' not in st.session_state:
-                    with st.spinner("🔄 Loading AI model for the first time..."):
-                        st.session_state.processor = CVIProcessor()
-                        st.session_state.processor.initialize_model()
-                
-                with st.spinner(f"🔬 Analyzing {filename}..."):
-                    res, v_cvi, v_dcvi = st.session_state.processor.process_image(
-                        pil_img, filename, fx, fy, scan_w, depth_r
-                    )
+            # 画像とボタンを重ねて表示するためのコンテナ
+            img_container = st.container()
+            with img_container:
+                # 画像を表示
+                st.image(preview_img, caption="Confirmation: Blue lines = 3.0mm ROI range, Green circle = Fovea center", width=orig_w)
+            
+            # Reselectボタンを画像の右上に重ねる（ネガティブマージンを使用）
+            st.markdown("""
+            <style>
+                .reselect-overlay {
+                    margin-top: -50px;
+                    margin-bottom: 10px;
+                    display: flex;
+                    justify-content: flex-end;
+                    padding-right: 10px;
+                }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            st.markdown('<div class="reselect-overlay">', unsafe_allow_html=True)
+            if st.button("🔄 Reselect", key=f"reselect_{idx}", type="secondary"):
+                del st.session_state.fovea_clicked[idx]
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Confirm & Analyze と Skip This Image ボタンを配置
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Confirm & Analyze", type="primary", key=f"confirm_{idx}", use_container_width=True):
+                    # --- Auto-initialization logic ---
+                    if 'processor' not in st.session_state:
+                        with st.spinner("🔄 Loading AI model for the first time..."):
+                            st.session_state.processor = CVIProcessor()
+                            st.session_state.processor.initialize_model()
                     
-                    if res is not None:
-                        st.session_state.results.append(res)
-                        if v_cvi is not None:
-                            st.session_state.vis_files[f"CVI_{filename}"] = v_cvi
-                        if v_dcvi is not None:
-                            st.session_state.vis_files[f"DCVI_{filename}"] = v_dcvi
-                        st.session_state.current_idx += 1
-                        st.rerun()
-                    else:
-                        st.error(f"❌ Failed to process image")
+                    with st.spinner(f"🔬 Analyzing {filename}..."):
+                        res, v_cvi, v_dcvi = st.session_state.processor.process_image(
+                            pil_img, filename, fx, fy, scan_w, depth_r
+                        )
+                        
+                        if res is not None:
+                            st.session_state.results.append(res)
+                            if v_cvi is not None:
+                                st.session_state.vis_files[f"CVI_{filename}"] = v_cvi
+                            if v_dcvi is not None:
+                                st.session_state.vis_files[f"DCVI_{filename}"] = v_dcvi
+                            st.session_state.current_idx += 1
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Failed to process image")
+            
+            with col2:
+                if st.button("⏭️ Skip This Image", key=f"skip_{idx}", use_container_width=True):
+                    st.warning(f"⏭️ Skipped: {filename}")
+                    st.session_state.current_idx += 1
+                    st.rerun()
     else:
         st.success("🎉 Analysis Complete!")
         df = pd.DataFrame(st.session_state.results)
         st.dataframe(df)
         
-        # --- Zip ファイル作成とダウンロード ---
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-            # CSV追加
-            csv_data = df.to_csv(index=False).encode('utf-8')
-            zip_file.writestr("cvi_results.csv", csv_data)
-            
-            # パラメータログ追加
-            log_df = pd.DataFrame({
-                'Parameter': ['App', 'Author', 'Date', 'Time', 'Scan Width', 'Depth Range'],
-                'Value': [APP_NAME, author, datetime.now().strftime('%Y-%m-%d'), 
-                         datetime.now().strftime('%H:%M:%S'), scan_w, depth_r]
-            })
-            zip_file.writestr("parameters.csv", log_df.to_csv(index=False).encode('utf-8'))
-            
-            # 可視化画像追加
-            for fname, fdata in st.session_state.vis_files.items():
-                if fdata is not None:
-                    zip_file.writestr(fname, fdata)
+        # --- Folder Batchモード: ファイルシステムに保存 ---
+        if mode == "Folder Batch" and output_folder:
+            try:
+                # 出力フォルダー作成（入力フォルダー名を含むサブフォルダー）
+                input_folder_name = Path(input_folder).name if input_folder else "output"
+                now_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+                out_root = Path(output_folder) / f"{input_folder_name}_CVI_{now_str}"
+                out_root.mkdir(parents=True, exist_ok=True)
+                
+                # CSV保存
+                df.to_csv(out_root / "cvi_results.csv", index=False)
+                
+                # パラメータログ保存
+                log_df = pd.DataFrame({
+                    'Parameter': ['Macro Name', 'Developer', 'Date', 'Time', 
+                                  'Original Folder', 'Analyzed by', 
+                                  'Scan Width (H-mm)', 'Depth Range (V-mm)', 
+                                  'Total Images', 'Success'],
+                    'Value': [APP_NAME, DEVELOPER, 
+                              datetime.now().strftime('%Y-%m-%d'), 
+                              datetime.now().strftime('%H:%M:%S'),
+                              input_folder_name, author,
+                              scan_w, depth_r,
+                              len(uploaded_files), len(st.session_state.results)]
+                })
+                log_df.to_csv(out_root / f"{input_folder_name}_Parameter.csv", index=False)
+                
+                # 可視化画像保存
+                for fname, fdata in st.session_state.vis_files.items():
+                    if fdata is not None:
+                        with open(out_root / fname, 'wb') as f:
+                            f.write(fdata)
+                
+                st.success(f"✅ Results saved to: `{out_root}`")
+                
+                if st.button("🔄 Start New Batch"):
+                    for key in ['current_idx', 'results', 'vis_files', 'fovea_clicked']:
+                        if key in st.session_state: 
+                            del st.session_state[key]
+                    st.rerun()
+                    
+            except Exception as e:
+                st.error(f"❌ Error saving to output folder: {str(e)}")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button(
-                label="📥 Download All Results (Zip)",
-                data=zip_buffer.getvalue(),
-                file_name=f"CVI_Results_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
-                mime="application/zip",
-                type="primary"
-            )
-        
-        with col2:
-            if st.button("🔄 Reset Session"):
-                for key in ['current_idx', 'results', 'vis_files']:
-                    if key in st.session_state: 
-                        del st.session_state[key]
-                st.rerun()
+        # --- File Uploadモード: Zipダウンロード ---
+        elif mode == "File Upload":
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+                # CSV追加
+                csv_data = df.to_csv(index=False).encode('utf-8')
+                zip_file.writestr("cvi_results.csv", csv_data)
+                
+                # パラメータログ追加
+                log_df = pd.DataFrame({
+                    'Parameter': ['App', 'Author', 'Date', 'Time', 'Scan Width', 'Depth Range'],
+                    'Value': [APP_NAME, author, datetime.now().strftime('%Y-%m-%d'), 
+                             datetime.now().strftime('%H:%M:%S'), scan_w, depth_r]
+                })
+                zip_file.writestr("parameters.csv", log_df.to_csv(index=False).encode('utf-8'))
+                
+                # 可視化画像追加
+                for fname, fdata in st.session_state.vis_files.items():
+                    if fdata is not None:
+                        zip_file.writestr(fname, fdata)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.download_button(
+                    label="📥 Download All Results (Zip)",
+                    data=zip_buffer.getvalue(),
+                    file_name=f"CVI_Results_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+                    mime="application/zip",
+                    type="primary"
+                )
+            
+            with col2:
+                if st.button("🔄 Reset Session"):
+                    for key in ['current_idx', 'results', 'vis_files', 'fovea_clicked']:
+                        if key in st.session_state: 
+                            del st.session_state[key]
+                    st.rerun()
 else:
-    st.warning("⚠️ Please upload B-scan images or specify input folder in the sidebar")
+    if mode == "Folder Batch":
+        st.warning("⚠️ Please specify input and output folder paths in the sidebar")
+    else:
+        st.warning("⚠️ Please upload B-scan images in the sidebar")

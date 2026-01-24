@@ -22,11 +22,11 @@ def create_shortcut_simple():
         vbs_script = current_dir / "create_shortcut.vbs"
         
         vbs_content = f'''Set oWS = WScript.CreateObject("WScript.Shell")
-sLinkFile = "{desktop}\\画像ROIツール.lnk"
+sLinkFile = "{desktop}\\ARIAKE_CVI.lnk"
 Set oLink = oWS.CreateShortcut(sLinkFile)
 oLink.TargetPath = "{run_bat}"
 oLink.WorkingDirectory = "{current_dir}"
-oLink.Description = "画像ROI選択ツール"
+oLink.Description = "ARIAKE_CVI - Choroidal Vascularity Index Analysis Tool"
 '''
         
         if icon_file.exists():

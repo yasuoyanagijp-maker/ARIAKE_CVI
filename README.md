@@ -116,13 +116,20 @@ venv\Scripts\activate  # Windows
   【File Uploadモード】
   1. サイドバーから画像をアップロード（複数選択可）
   2. 各画像でFovea（中心窩）をクリック選択
-  3. "Confirm & Analyze"をクリック
+  3. 確認画像が表示されたら:
+     • "Confirm & Analyze": 解析を実行して次へ
+     • "Skip This Image": この画像をスキップ
+     • "Reselect": クリック位置をやり直す
   4. 全画像完了後、結果をZIPダウンロード
 
   【Folder Batchモード】
-  1. 入力フォルダと出力フォルダのパスを指定
-  2. 各画像でFoveaをクリック選択
-  3. 自動で処理され、出力フォルダに保存
+  1. 入力フォルダと出力フォルダをBrowseボタンから選択
+     （またはパスを直接入力）
+  2. "Found XX images" が表示されたら、サイドバーが自動的に閉じます
+  3. 各画像でFoveaをクリック選択
+  4. 解析完了後、指定した出力フォルダに結果が保存されます
+     • フォルダ名: [入力フォルダ名]_CVI_[日時]
+     • 中身: cvi_results.csv, パラメータログ, 可視化画像
 
 ◆ パラメータ設定
   • Scan Width: スキャン幅（デフォルト: 12.0mm）
@@ -169,14 +176,24 @@ A: パスの例: C:/Users/YourName/Documents/images
 【システム要件】
 
 • OS: Windows 10/11, macOS, Linux
-• Python: 3.8以上
-• メモリ: 4GB以上推奨
-• ストレージ: 500MB以上の空き容量
+• Python: 3.11 or 3.12 推奨（3.14はPyTorch未対応）
+• メモリ: 8GB以上推奨
+• ストレージ: 2GB以上の空き容量（モデル含む）
+• ブラウザ: Chrome, Firefox, Edge など最新版
 
 【バージョン情報】
-Version: 1.0.0
+Version: 2.0.0
 更新日: 2026-01-24
 Developer: Team Yanagi
+
+主な機能:
+• Streamlit UIへの完全移行
+• Folder Batch処理モード追加
+• フォルダーブラウザー機能
+• ROI選択の2段階確認
+• 自動サイドバー折りたたみ
+• Skip機能追加
+• Enterキー対応（開発中）
 
 【サポート】
 問題がある場合は開発チームにお問い合わせください
