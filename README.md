@@ -19,18 +19,43 @@ ARIAKE_CVI is a Streamlit-based web app for automated choroidal vascularity inde
 
 ## Requirements
 
-- **Python packages**: `streamlit`, `numpy`, `opencv-python`, `Pillow`, `pandas`, `streamlit-image-coordinates`.
+- **Python Version**: 3.11 or 3.12 recommended (PyTorch does not support Python 3.14 yet as of 2026-01)
+- **Python packages**: `streamlit`, `numpy`, `opencv-python`, `Pillow`, `pandas`, `streamlit-image-coordinates`, `torch`, `torchvision`, `scikit-image`, etc.
 - **Project structure** (expected):  
   - `main_st.py` (this app file) and a `deepgpet/` directory containing `choseg/inference.py` and related utilities for `DeepGPET`.
 - If `choseg.inference` cannot be imported, the app falls back to a dummy `MockModel` that outputs an empty mask (for UI testing only, not for real analysis).
 
 ## How to Run
 
+### 1. Setup Python Environment (Important!)
+
+**For Python 3.14 users:** PyTorch does not support Python 3.14 yet. Please use Python 3.11 or 3.12:
+
+```bash
+# Check available Python versions
+ls /usr/local/bin/python3*
+
+# If you have Python 3.11 or 3.12, create virtual environment with it
+python3.11 -m venv venv
+# or
+python3.12 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate  # macOS/Linux
+# or
+venv\Scripts\activate  # Windows
+```
+
+### 2. Install Dependencies
+
 1. Place `main_st.py` and the `deepgpet` directory in the same folder (so `deepgpet_path = Path(__file__).parent / 'deepgpet'` is valid).
-2. Install dependencies, for example:  
+2. Install dependencies:  
    ```bash
-   pip install streamlit numpy opencv-python pillow pandas streamlit-image-coordinates
+   pip install -r requirements.txt
    ```  
+   
+### 3. Start the App
+
 3. Start the app:  
    ```bash
    streamlit run main_st.py
@@ -46,3 +71,112 @@ ARIAKE_CVI is a Streamlit-based web app for automated choroidal vascularity inde
 3. After all images are processed, review the results table on the main page.
 4. Click “Download All Results (Zip)” to obtain the metrics CSVs and visualization images; use “Reset Session” to clear state and start a new batch.
 
+╔════════════════════════════════════════════════╗
+║         ARIAKE_CVI - 使用方法                  ║
+║         Developer: Team Yanagi                 ║
+╚════════════════════════════════════════════════╝
+
+【初回セットアップ】
+
+1. フォルダ構成を確認
+   ARIAKE_CVI/
+   ├── main_st.py
+   ├── requirements.txt
+   ├── setup.bat
+   ├── run.bat
+   ├── create_shortcut.py
+   ├── deepgpet/          ← 重要！このフォルダが必要です
+   │   └── choseg/
+   │       ├── inference.py
+   │       ├── utils.py
+   │       └── ...
+   └── README.txt
+
+2. setup.bat をダブルクリック
+   
+   ※ Pythonがインストールされていない場合：
+     https://www.python.org/downloads/
+     からダウンロードしてインストール
+     （インストール時に「Add Python to PATH」に✓）
+
+3. セットアップが完了すると、デスクトップに
+   「ARIAKE_CVI」アイコンが作成されます
+
+【使い方】
+
+◆ 起動方法
+  • デスクトップの「ARIAKE_CVI」アイコンをダブルクリック
+  • または run.bat をダブルクリック
+
+◆ ログイン
+  デフォルトアクセスキー: ariake2024
+
+◆ 処理モード
+
+  【File Uploadモード】
+  1. サイドバーから画像をアップロード（複数選択可）
+  2. 各画像でFovea（中心窩）をクリック選択
+  3. "Confirm & Analyze"をクリック
+  4. 全画像完了後、結果をZIPダウンロード
+
+  【Folder Batchモード】
+  1. 入力フォルダと出力フォルダのパスを指定
+  2. 各画像でFoveaをクリック選択
+  3. 自動で処理され、出力フォルダに保存
+
+◆ パラメータ設定
+  • Scan Width: スキャン幅（デフォルト: 12.0mm）
+  • Depth Range: 深度範囲（デフォルト: 2.6mm）
+  • Author: 解析者名
+
+◆ 結果
+  ZIPファイルに以下が含まれます:
+  • cvi_results.csv - 解析結果データ
+  • parameters.csv - パラメータログ
+  • CVI_*.jpg - CVI可視化画像
+  • DCVI_*.jpg - D-CVI可視化画像
+
+【重要な注意事項】
+
+⚠️ deepgpetフォルダが必須です
+  - DeepGPETモデルが含まれているフォルダ
+  - main_st.pyと同じディレクトリに配置してください
+
+⚠️ 初回解析時のモデルロード
+  - 最初の解析時に自動でAIモデルを読み込みます
+  - 数秒〜数十秒かかる場合があります
+  - モデル読み込み後は高速に動作します
+
+【トラブルシューティング】
+
+Q: 起動しない
+A: setup.bat をもう一度実行してください
+
+Q: "DeepGPETモジュールが見つかりません"と表示される
+A: deepgpetフォルダがmain_st.pyと同じ場所にあるか確認
+
+Q: モデルの読み込みに失敗する
+A: deepgpetフォルダの中身が正しいか確認
+   特にchoseg/inference.pyが存在するか
+
+Q: 画像のクリック位置がずれる
+A: ブラウザのズームを100%に設定してください
+
+Q: フォルダパスが認識されない
+A: パスの例: C:/Users/YourName/Documents/images
+   スラッシュ(/)またはバックスラッシュ2つ(\\)を使用
+
+【システム要件】
+
+• OS: Windows 10/11, macOS, Linux
+• Python: 3.8以上
+• メモリ: 4GB以上推奨
+• ストレージ: 500MB以上の空き容量
+
+【バージョン情報】
+Version: 1.0.0
+更新日: 2026-01-24
+Developer: Team Yanagi
+
+【サポート】
+問題がある場合は開発チームにお問い合わせください

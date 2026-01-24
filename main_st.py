@@ -23,9 +23,34 @@ sys.path.insert(0, str(deepgpet_path))
 
 try:
     from choseg import inference, utils
-except ImportError:
+except ImportError as e:
+    error_msg = str(e)
+    if 'torch' in error_msg:
+        st.error(f"""
+        ⚠️ **PyTorchが見つかりません**
+        
+        現在のPythonバージョン（{sys.version.split()[0]}）ではPyTorchがインストールできない可能性があります。
+        
+        **解決方法:**
+        1. Python 3.11または3.12を使用してください
+        2. 仮想環境を再作成してください:
+           ```
+           python3.11 -m venv venv
+           source venv/bin/activate
+           pip install -r requirements.txt
+           ```
+        
+        詳細エラー: {error_msg}
+        """)
+    else:
+        st.error(f"⚠️ DeepGPETモジュールが見つかりません。deepgpetフォルダが同じディレクトリにあることを確認してください。\n\nエラー: {error_msg}")
+    
     class MockModel:
-        def __call__(self, img): return np.zeros((img.size[1], img.size[0]))
+        def __call__(self, img):
+            # Ensure numpy array output consistent with real model
+            if isinstance(img, Image.Image):
+                img = np.array(img)
+            return np.zeros(img.shape, dtype=np.float32)
     inference = type('obj', (object,), {'DeepGPET': MockModel})
 
 APP_NAME = "ARIAKE_CVI"
@@ -69,6 +94,10 @@ class CVIProcessor:
 
     def get_roi_metrics(self, global_lum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, width_mm):
         height, width = mask.shape
+        
+        # Validate fovea position
+        fovea_x = max(0, min(fovea_x, width - 1))
+        
         roi_width_px = int(width_mm * scale_px_per_mm_h)
         roi_start_x = max(0, int(fovea_x - roi_width_px / 2))
         roi_end_x = min(width, roi_start_x + roi_width_px)
@@ -87,63 +116,75 @@ class CVIProcessor:
         return tca_mm2, ct_um, cvi, la_mm2, roi_lum
 
     def process_image(self, pil_img, filename, fovea_x, fovea_y, scan_width_mm, depth_range_mm):
-        img_gray = np.array(pil_img.convert('L'))
-        height, width = img_gray.shape
-        scale_px_per_mm_h = width / scan_width_mm
-        scale_px_per_mm_v = height / depth_range_mm
+        try:
+            img_gray = np.array(pil_img.convert('L'))
+            height, width = img_gray.shape
+            
+            # Validate fovea coordinates
+            fovea_x = max(0, min(int(fovea_x), width - 1))
+            fovea_y = max(0, min(int(fovea_y), height - 1))
+            
+            scale_px_per_mm_h = width / scan_width_mm
+            scale_px_per_mm_v = height / depth_range_mm
+            
+            # Segmentation
+            img_seg = self.model(Image.fromarray(img_gray))
+            if isinstance(img_seg, np.ndarray):
+                mask = (img_seg > 0.5).astype(np.uint8) * 255
+            else:
+                mask = np.zeros((height, width), dtype=np.uint8)
+            
+            # Denoising & Thresholding
+            denoised_img = self.denoise_image_global(img_gray)
+            global_lum_mask = self.niblack_threshold(img_gray, mask)
+            global_dlum_mask = self.niblack_threshold(denoised_img, mask)
+            
+            global_lum_mask = cv2.medianBlur(global_lum_mask, 3)
+            global_dlum_mask = cv2.medianBlur(global_dlum_mask, 3)
+            global_lum_mask[mask == 0] = 0
+            global_dlum_mask[mask == 0] = 0
+            
+            # Get Metrics
+            tca15, ct15, cvi15, _, _ = self.get_roi_metrics(global_lum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 1.5)
+            tca30, ct30, cvi30, _, lum30_roi = self.get_roi_metrics(global_lum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 3.0)
+            dtca15, dct15, dcvi15, _, _ = self.get_roi_metrics(global_dlum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 1.5)
+            dtca30, dct30, dcvi30, _, dlum30_roi = self.get_roi_metrics(global_dlum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 3.0)
         
-        # Segmentation
-        img_seg = self.model(Image.fromarray(img_gray))
-        mask = (img_seg > 0.5).astype(np.uint8) * 255
-        
-        # Denoising & Thresholding
-        denoised_img = self.denoise_image_global(img_gray)
-        global_lum_mask = self.niblack_threshold(img_gray, mask)
-        global_dlum_mask = self.niblack_threshold(denoised_img, mask)
-        
-        global_lum_mask = cv2.medianBlur(global_lum_mask, 3)
-        global_dlum_mask = cv2.medianBlur(global_dlum_mask, 3)
-        global_lum_mask[mask == 0] = 0
-        global_dlum_mask[mask == 0] = 0
-        
-        # Get Metrics
-        tca15, ct15, cvi15, _, _ = self.get_roi_metrics(global_lum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 1.5)
-        tca30, ct30, cvi30, _, lum30_roi = self.get_roi_metrics(global_lum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 3.0)
-        dtca15, dct15, dcvi15, _, _ = self.get_roi_metrics(global_dlum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 1.5)
-        dtca30, dct30, dcvi30, _, dlum30_roi = self.get_roi_metrics(global_dlum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 3.0)
-        
-        # Generate Visualization Images for Memory
-        def create_vis_buffer(base_img, l_mask_roi):
-            vis = cv2.cvtColor(base_img, cv2.COLOR_GRAY2RGB)
-            roi_w_px = int(3.0 * scale_px_per_mm_h)
-            rx_start = max(0, int(fovea_x - roi_w_px / 2))
-            rx_end = min(width, rx_start + roi_w_px)
-            full_v_mask = np.zeros_like(mask)
-            if l_mask_roi is not None: full_v_mask[:, rx_start:rx_end] = l_mask_roi
-            vis[full_v_mask > 0] = [0, 0, 0] 
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            cv2.drawContours(vis, contours, -1, (0, 255, 255), 1) 
-            cv2.circle(vis, (int(fovea_x), int(fovea_y)), 8, (0, 255, 0), -1) 
-            cv2.line(vis, (rx_start, 0), (rx_start, height), (255, 0, 0), 2)
-            cv2.line(vis, (rx_end, 0), (rx_end, height), (255, 0, 0), 2)
-            is_success, buffer = cv2.imencode(".jpg", vis)
-            return buffer.tobytes()
+            # Generate Visualization Images for Memory
+            def create_vis_buffer(base_img, l_mask_roi):
+                vis = cv2.cvtColor(base_img, cv2.COLOR_GRAY2RGB)
+                roi_w_px = int(3.0 * scale_px_per_mm_h)
+                rx_start = max(0, int(fovea_x - roi_w_px / 2))
+                rx_end = min(width, rx_start + roi_w_px)
+                full_v_mask = np.zeros_like(mask)
+                if l_mask_roi is not None: full_v_mask[:, rx_start:rx_end] = l_mask_roi
+                vis[full_v_mask > 0] = [0, 0, 0] 
+                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                cv2.drawContours(vis, contours, -1, (0, 255, 255), 1) 
+                cv2.circle(vis, (int(fovea_x), int(fovea_y)), 8, (0, 255, 0), -1) 
+                cv2.line(vis, (rx_start, 0), (rx_start, height), (255, 0, 0), 2)
+                cv2.line(vis, (rx_end, 0), (rx_end, height), (255, 0, 0), 2)
+                is_success, buffer = cv2.imencode(".jpg", vis)
+                return buffer.tobytes() if is_success else None
 
-        vis_cvi = create_vis_buffer(img_gray, lum30_roi)
-        vis_dcvi = create_vis_buffer(denoised_img, dlum30_roi)
+            vis_cvi = create_vis_buffer(img_gray, lum30_roi)
+            vis_dcvi = create_vis_buffer(denoised_img, dlum30_roi)
 
-        stats = {
-            'Image ID': filename,
-            'TCA 1.5mm (mm2)': round(tca15, 4),
-            'CT 1.5mm (um)': round(ct15, 2),
-            'CVI 1.5mm (%)': round(cvi15, 2),
-            'D-CVI 1.5mm (%)': round(dcvi15, 2),
-            'TCA 3.0mm (mm2)': round(tca30, 4),
-            'CT 3.0mm (um)': round(ct30, 2),
-            'CVI 3.0mm (%)': round(cvi30, 2),
-            'D-CVI 3.0mm (%)': round(dcvi30, 2)
-        }
-        return stats, vis_cvi, vis_dcvi
+            stats = {
+                'Image ID': filename,
+                'TCA 1.5mm (mm2)': round(tca15, 4),
+                'CT 1.5mm (um)': round(ct15, 2),
+                'CVI 1.5mm (%)': round(cvi15, 2),
+                'D-CVI 1.5mm (%)': round(dcvi15, 2),
+                'TCA 3.0mm (mm2)': round(tca30, 4),
+                'CT 3.0mm (um)': round(ct30, 2),
+                'CVI 3.0mm (%)': round(cvi30, 2),
+                'D-CVI 3.0mm (%)': round(dcvi30, 2)
+            }
+            return stats, vis_cvi, vis_dcvi
+        except Exception as e:
+            st.error(f"❌ Error processing {filename}: {str(e)}")
+            return None, None, None
 
 # ==========================================
 # Streamlit UI
@@ -178,67 +219,153 @@ st.markdown(f"*Developed by {DEVELOPER}*")
 
 # サイドバー設定
 with st.sidebar:
-    st.header("Settings")
-    uploaded_files = st.file_uploader("Upload B-scan Images", type=['png', 'jpg', 'jpeg', 'tif', 'tiff'], accept_multiple_files=True)
-    scan_w = st.number_input("Scan Width (mm)", value=12.0)
-    depth_r = st.number_input("Depth Range (mm)", value=2.6)
+    st.header("⚙️ Settings")
+    
+    # 処理モード選択
+    mode = st.radio("Processing Mode", ["File Upload", "Folder Batch"])
+    
+    if mode == "File Upload":
+        uploaded_files = st.file_uploader(
+            "Upload B-scan Images", 
+            type=['png', 'jpg', 'jpeg', 'tif', 'tiff'], 
+            accept_multiple_files=True
+        )
+    else:
+        input_folder = st.text_input("Input Folder Path", placeholder="/path/to/input")
+        output_folder = st.text_input("Output Folder Path", placeholder="/path/to/output")
+        uploaded_files = []
+        if input_folder and os.path.exists(input_folder):
+            try:
+                image_files = sorted(
+                    list(Path(input_folder).glob("*.png")) + 
+                    list(Path(input_folder).glob("*.jpg")) + 
+                    list(Path(input_folder).glob("*.jpeg")) +
+                    list(Path(input_folder).glob("*.tif")) +
+                    list(Path(input_folder).glob("*.tiff"))
+                )
+                st.info(f"✅ Found {len(image_files)} images")
+                uploaded_files = image_files
+            except Exception as e:
+                st.error(f"❌ Error reading folder: {str(e)}")
+        elif input_folder:
+            st.error(f"❌ Folder path does not exist: {input_folder}")
+    
+    scan_w = st.number_input("Scan Width (mm)", value=12.0, min_value=0.1)
+    depth_r = st.number_input("Depth Range (mm)", value=2.6, min_value=0.1)
     author = st.text_input("Author", value="YY")
     
     st.divider()
+    
     # モデルのロード状態を表示
     if 'processor' in st.session_state:
-        st.success("AI Model is Loaded")
+        st.success("✅ AI Model Loaded")
     else:
-        st.warning("AI Model not loaded yet (Auto-loads on first analysis)")
+        st.warning("⏳ Model loads on first analysis")
     
     # 手動初期化ボタンもオプションとして残す
     if st.button("Re-initialize AI Model"):
         with st.spinner("Loading DeepGPET..."):
             st.session_state.processor = CVIProcessor()
             st.session_state.processor.initialize_model()
-            st.success("Model Initialized!")
+            st.success("✅ Model Initialized!")
 
 # 解析処理
 if uploaded_files:
     idx = st.session_state.current_idx
     
     if idx < len(uploaded_files):
-        file = uploaded_files[idx]
-        st.subheader(f"Step {idx+1}/{len(uploaded_files)}: Select Fovea for `{file.name}`")
+        # ファイル取得（File UploadとPathオブジェクト両対応）
+        file_item = uploaded_files[idx]
+        if isinstance(file_item, Path):
+            try:
+                pil_img = Image.open(file_item)
+                filename = file_item.name
+            except Exception as e:
+                st.error(f"❌ Cannot open image: {str(e)}")
+                st.stop()
+        else:
+            try:
+                pil_img = Image.open(file_item)
+                filename = file_item.name
+            except Exception as e:
+                st.error(f"❌ Cannot open image: {str(e)}")
+                st.stop()
         
-        pil_img = Image.open(file)
+        st.subheader(f"Step {idx+1}/{len(uploaded_files)}: Select Fovea for `{filename}`")
+        
         orig_w, orig_h = pil_img.size
         
-        st.info("Click the center of the fovea on the image.")
-        value = streamlit_image_coordinates(pil_img, key=f"fovea_{idx}", use_column_width=True)
+        st.info("👆 Click the center of the fovea on the image")
         
+        # 画像を全幅で表示
+        value = streamlit_image_coordinates(pil_img, key=f"fovea_{idx}", width=orig_w)
+        
+        if value is not None:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Clicked X", value['x'])
+            with col2:
+                st.metric("Clicked Y", value['y'])
+        
+        # ROIプレビューを追加
         if value is not None:
             display_w = value['width']
             display_h = value['height']
+            
+            # Check for zero division
+            if display_w <= 0 or display_h <= 0:
+                st.error("❌ Invalid image display dimensions")
+                st.stop()
+            
             fx = int(value['x'] * (orig_w / display_w))
             fy = int(value['y'] * (orig_h / display_h))
             
-            if st.button("Confirm & Analyze"):
-                # --- 自動初期化ロジック ---
+            # ROI範囲を描画したプレビュー画像を作成
+            preview_img = np.array(pil_img.convert('RGB'))
+            scale_px_per_mm_h = orig_w / scan_w
+            
+            # 3.0mm ROI範囲を描画
+            roi_width_px = int(3.0 * scale_px_per_mm_h)
+            roi_start_x = max(0, int(fx - roi_width_px / 2))
+            roi_end_x = min(orig_w, roi_start_x + roi_width_px)
+            
+            # ROI範囲を青い線で描画
+            cv2.line(preview_img, (roi_start_x, 0), (roi_start_x, orig_h), (255, 0, 0), 2)
+            cv2.line(preview_img, (roi_end_x, 0), (roi_end_x, orig_h), (255, 0, 0), 2)
+            
+            # 中心点を緑の円で描画
+            cv2.circle(preview_img, (fx, fy), 8, (0, 255, 0), -1)
+            
+            st.image(preview_img, caption="ROI Preview (Blue: 3.0mm range, Green: Fovea center)", width=orig_w)
+            
+            if st.button("✅ Confirm & Analyze", type="primary"):
+                # --- Auto-initialization logic ---
                 if 'processor' not in st.session_state:
-                    with st.spinner("First time loading AI model... Please wait..."):
+                    with st.spinner("🔄 Loading AI model for the first time..."):
                         st.session_state.processor = CVIProcessor()
                         st.session_state.processor.initialize_model()
                 
-                with st.spinner(f"Analyzing {file.name}..."):
-                    res, v_cvi, v_dcvi = st.session_state.processor.process_image(pil_img, file.name, fx, fy, scan_w, depth_r)
-                    if res:
+                with st.spinner(f"🔬 Analyzing {filename}..."):
+                    res, v_cvi, v_dcvi = st.session_state.processor.process_image(
+                        pil_img, filename, fx, fy, scan_w, depth_r
+                    )
+                    
+                    if res is not None:
                         st.session_state.results.append(res)
-                        st.session_state.vis_files[f"CVI_{file.name}"] = v_cvi
-                        st.session_state.vis_files[f"DCVI_{file.name}"] = v_dcvi
+                        if v_cvi is not None:
+                            st.session_state.vis_files[f"CVI_{filename}"] = v_cvi
+                        if v_dcvi is not None:
+                            st.session_state.vis_files[f"DCVI_{filename}"] = v_dcvi
                         st.session_state.current_idx += 1
                         st.rerun()
+                    else:
+                        st.error(f"❌ Failed to process image")
     else:
         st.success("🎉 Analysis Complete!")
         df = pd.DataFrame(st.session_state.results)
-        st.table(df)
+        st.dataframe(df)
         
-        # --- Zipファイル作成とダウンロード ---
+        # --- Zip ファイル作成とダウンロード ---
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
             # CSV追加
@@ -248,25 +375,31 @@ if uploaded_files:
             # パラメータログ追加
             log_df = pd.DataFrame({
                 'Parameter': ['App', 'Author', 'Date', 'Time', 'Scan Width', 'Depth Range'],
-                'Value': [APP_NAME, author, datetime.now().strftime('%Y-%m-%d'), datetime.now().strftime('%H:%M:%S'), scan_w, depth_r]
+                'Value': [APP_NAME, author, datetime.now().strftime('%Y-%m-%d'), 
+                         datetime.now().strftime('%H:%M:%S'), scan_w, depth_r]
             })
             zip_file.writestr("parameters.csv", log_df.to_csv(index=False).encode('utf-8'))
             
             # 可視化画像追加
             for fname, fdata in st.session_state.vis_files.items():
-                zip_file.writestr(fname, fdata)
+                if fdata is not None:
+                    zip_file.writestr(fname, fdata)
         
-        st.download_button(
-            label="Download All Results (Zip)",
-            data=zip_buffer.getvalue(),
-            file_name=f"CVI_Results_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
-            mime="application/zip"
-        )
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                label="📥 Download All Results (Zip)",
+                data=zip_buffer.getvalue(),
+                file_name=f"CVI_Results_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+                mime="application/zip",
+                type="primary"
+            )
         
-        if st.button("Reset Session"):
-            for key in ['current_idx', 'results', 'vis_files']:
-                if key in st.session_state: del st.session_state[key]
-            st.rerun()
+        with col2:
+            if st.button("🔄 Reset Session"):
+                for key in ['current_idx', 'results', 'vis_files']:
+                    if key in st.session_state: 
+                        del st.session_state[key]
+                st.rerun()
 else:
-    if not uploaded_files:
-        st.warning("Please upload B-scan images in the sidebar.")
+    st.warning("⚠️ Please upload B-scan images or specify input folder in the sidebar")
