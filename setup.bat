@@ -1,62 +1,62 @@
 @echo off
 chcp 65001 >nul
-title ARIAKE_CVI - セットアップ
+title ARIAKE_CVI - Setup
 
-echo ╔════════════════════════════════════════╗
-echo ║      ARIAKE_CVI - 初期セットアップ     ║
-echo ╚════════════════════════════════════════╝
+echo ========================================
+echo   ARIAKE_CVI - Initial Setup
+echo ========================================
 echo.
 
-REM Pythonの確認
-echo [1/4] Pythonを確認中...
+REM Check Python
+echo([1/4] Checking Python...
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ❌ Pythonが見つかりません
+    echo [ERROR] Python not found
     echo.
-    echo 以下のURLからPythonをインストールしてください:
+    echo Please install Python from the following URL:
     echo https://www.python.org/downloads/
     echo.
-    echo インストール時に「Add Python to PATH」にチェックを入れてください
+    echo Make sure to check "Add Python to PATH" during installation
     pause
     exit /b 1
 )
 python --version
-echo ✅ Pythonが見つかりました
+echo [OK] Python found
 echo.
 
-REM 依存関係のインストール
-echo [2/4] 必要なパッケージをインストール中...
+REM Install dependencies
+echo([2/4] Installing required packages...
 python -m pip install --upgrade pip --quiet
 pip install -r requirements.txt --quiet
 if %errorlevel% neq 0 (
-    echo ❌ パッケージのインストールに失敗しました
+    echo [ERROR] Failed to install packages
     pause
     exit /b 1
 )
-echo ✅ パッケージのインストール完了
+echo [OK] Package installation complete
 echo.
 
-REM デスクトップショートカットの作成
-echo [3/4] デスクトップショートカットを作成中...
+REM Create desktop shortcut
+echo([3/4] Creating desktop shortcut...
 python create_shortcut.py
 if %errorlevel% neq 0 (
-    echo ⚠️  ショートカット作成に失敗しました（手動で run.bat を起動してください）
+    echo [WARN] Failed to create shortcut (please run run.bat manually)
 ) else (
-    echo ✅ デスクトップにショートカットを作成しました
+    echo [OK] Desktop shortcut created
 )
 echo.
 
-REM 完了確認
-echo [4/4] 完了確認...
-echo ✅ セットアップが完了しました！
+REM Final check
+echo([4/4] Final check...
+echo [OK] Setup is complete!
 echo.
 
-echo ╔════════════════════════════════════════╗
-echo ║           セットアップ完了！           ║
-echo ╚════════════════════════════════════════╝
+echo ========================================
+echo           Setup Complete!
+echo ========================================
 echo.
-echo 次回からは以下の方法で起動できます:
-echo  • デスクトップの「ARIAKE_CVI」アイコンをダブルクリック
-echo  • または、run.bat をダブルクリック
+echo You can start the application by:
+echo  • Double-clicking the "ARIAKE_CVI" icon on your desktop
+echo  • Or double-clicking run.bat
 echo.
 pause
