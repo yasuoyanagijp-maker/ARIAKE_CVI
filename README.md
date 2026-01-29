@@ -5,7 +5,8 @@
 【初回セットアップ】
 
 1. フォルダ構成を確認
-
+        
+```
    ARIAKE_CVI/
    ├── main_st.py
    ├── requirements.txt
@@ -18,15 +19,18 @@
    │       ├── utils.py
    │       └── ...
    └── README.txt
+```                
 
 3. setup.bat をダブルクリック
    
    ※ Pythonがインストールされていない場合：
+   ```
      https://www.python.org/downloads/
+   ```
      からダウンロードしてインストール
      （インストール時に「Add Python to PATH」に✓）
 
-4. セットアップが完了すると、デスクトップに
+5. セットアップが完了すると、デスクトップに
    「ARIAKE_CVI」アイコンが作成されます
 
 【使い方】
@@ -117,8 +121,6 @@ Developer: Team Yanagi
 • Streamlit UIへの完全移行
 • Folder Batch処理モード追加
 • フォルダーブラウザー機能
-• ROI選択の2段階確認
-• 自動サイドバー折りたたみ
 • Skip機能追加
 
 ARIAKE_CVI is a Streamlit-based web app for automated choroidal vascularity index (CVI) and related metrics from OCT B‑scan images using a DeepGPET segmentation model.
