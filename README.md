@@ -19,14 +19,14 @@
    │       └── ...
    └── README.txt
 
-2. setup.bat をダブルクリック
+3. setup.bat をダブルクリック
    
    ※ Pythonがインストールされていない場合：
      https://www.python.org/downloads/
      からダウンロードしてインストール
      （インストール時に「Add Python to PATH」に✓）
 
-3. セットアップが完了すると、デスクトップに
+4. セットアップが完了すると、デスクトップに
    「ARIAKE_CVI」アイコンが作成されます
 
 【使い方】
