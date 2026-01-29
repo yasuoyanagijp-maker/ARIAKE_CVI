@@ -196,7 +196,3 @@ venv\Scripts\activate  # Windows
 3. After all images are processed, review the results table on the main page.
 4. Click “Download All Results (Zip)” to obtain the metrics CSVs and visualization images; use “Reset Session” to clear state and start a new batch.
 
-• Enterキー対応（開発中）
-
-【サポート】
-問題がある場合は開発チームにお問い合わせください
