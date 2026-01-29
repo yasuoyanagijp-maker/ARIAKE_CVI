@@ -5,6 +5,7 @@
 【初回セットアップ】
 
 1. フォルダ構成を確認
+
    ARIAKE_CVI/
    ├── main_st.py
    ├── requirements.txt
