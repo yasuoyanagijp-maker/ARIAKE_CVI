@@ -2,10 +2,12 @@
 chcp 65001 >nul
 title ARIAKE_CVI
 
-REM Launch Streamlit
 cd /d "%~dp0"
-echo Launching... The browser will open automatically.
-echo If you close this window, the app will also exit.
-echo.
-streamlit run main_st.py
-pause
+echo Launching ARIAKE_CVI...
+echo (ブラウザを閉じると、このウィンドウも自動的に閉じます)
+
+REM 直接 streamlit を呼ぶのではなく、ラッパーを python で実行する
+python app_launcher.py
+
+REM pythonが終了（os.kill）すれば、ここへ戻ってきます
+exit
