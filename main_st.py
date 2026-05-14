@@ -254,6 +254,12 @@ class CVIProcessor:
             tca30, ct30, cvi30, _, lum30_roi = self.get_roi_metrics(global_lum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 3.0)
             dtca15, dct15, dcvi15, _, _ = self.get_roi_metrics(global_dlum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 1.5)
             dtca30, dct30, dcvi30, _, dlum30_roi = self.get_roi_metrics(global_dlum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 3.0)
+
+            # CVI_plain / DCVI_plain の黒オーバーレイ面積（脈絡膜マスク内・スキャン全幅の内腔二値化）
+            pixel_area_mm2 = (1.0 / scale_px_per_mm_h) * (1.0 / scale_px_per_mm_v)
+            total_mask_area_mm2 = float(np.sum(mask > 0)) * pixel_area_mm2
+            fluid_area_mm2 = float(np.sum(global_lum_mask > 0)) * pixel_area_mm2
+            d_fluid_area_mm2 = float(np.sum(global_dlum_mask > 0)) * pixel_area_mm2
         
             # Generate visualization images for download/preview
             def roi_3mm_horizontal_bounds():
@@ -294,6 +300,8 @@ class CVIProcessor:
 
             plain_cvi = create_vis_binarization_only_fullwidth(img_gray, global_lum_mask)
             plain_dcvi = create_vis_binarization_only_fullwidth(denoised_img, global_dlum_mask)
+            # 元B-scan（CVI系）上に D-CVI 系の全幅内腔二値化のみ黒で重ねた図
+            cvi_base_dlumen_overlay = create_vis_binarization_only_fullwidth(img_gray, global_dlum_mask)
 
             stats = {
                 'Image ID': filename,
@@ -304,12 +312,15 @@ class CVIProcessor:
                 'TCA 3.0mm (mm2)': round(tca30, 4),
                 'CT 3.0mm (um)': round(ct30, 2),
                 'CVI 3.0mm (%)': round(cvi30, 2),
-                'D-CVI 3.0mm (%)': round(dcvi30, 2)
+                'D-CVI 3.0mm (%)': round(dcvi30, 2),
+                'Total mask area (mm2)': round(total_mask_area_mm2, 4),
+                'Fluid area (mm2)': round(fluid_area_mm2, 4),
+                'D-Fluid area (mm2)': round(d_fluid_area_mm2, 4),
             }
-            return stats, vis_cvi, vis_dcvi, plain_cvi, plain_dcvi
+            return stats, vis_cvi, vis_dcvi, plain_cvi, plain_dcvi, cvi_base_dlumen_overlay
         except Exception as e:
             st.error(f"❌ Error processing {filename}: {str(e)}")
-            return None, None, None, None, None
+            return None, None, None, None, None, None
 
 # ==========================================
 # Streamlit UI
@@ -641,7 +652,7 @@ if uploaded_files:
                             st.session_state.processor.initialize_model()
                     
                     with st.spinner(f"🔬 Analyzing {filename}..."):
-                        res, v_cvi, v_dcvi, p_cvi, p_dcvi = st.session_state.processor.process_image(
+                        res, v_cvi, v_dcvi, p_cvi, p_dcvi, hybrid = st.session_state.processor.process_image(
                             pil_img, filename, fx, fy, scan_w, depth_r
                         )
                         
@@ -655,6 +666,8 @@ if uploaded_files:
                                 st.session_state.vis_files[f"CVI_plain_{filename}"] = p_cvi
                             if p_dcvi is not None:
                                 st.session_state.vis_files[f"DCVI_plain_{filename}"] = p_dcvi
+                            if hybrid is not None:
+                                st.session_state.vis_files[f"CVI_Dlumen_overlay_{filename}"] = hybrid
                             st.session_state.current_idx += 1
                             st.rerun()
                         else:
