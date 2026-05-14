@@ -442,7 +442,7 @@ def render_app_settings(*, show_header=True):
 
     analysis_mode = st.radio(
         "解析モード",
-        ["マニュアル解析", "自動解析"],
+        ["自動解析", "マニュアル解析"],
         key="settings_analysis_mode",
         help=(
             "自動解析: fovea・3mm ROI を指定せず、Total mask area / Fluid / D-Fluid (mm²) と "
@@ -580,25 +580,23 @@ def render_app_settings(*, show_header=True):
 
     scan_w = st.number_input("Scan Width (mm)", value=12.0, min_value=0.1, key="settings_scan_w")
     depth_r = st.number_input("Depth Range (mm)", value=2.6, min_value=0.1, key="settings_depth_r")
-    author = st.text_input("Author", value="YY", key="settings_author")
+    author = st.text_input("Analyst", value="Yasuo Yanagi", key="settings_author")
 
     st.divider()
 
     if "processor" in st.session_state:
         st.success("✅ AI Model Loaded")
-    else:
-        st.info("ℹ️ Model will be loaded automatically on first analysis")
 
     return mode, uploaded_files, input_folder, output_folder, scan_w, depth_r, author, analysis_mode
 
 
 # --- 認証画面 ---
 if not st.session_state.authenticated:
+    st.title(f"🔐 {APP_NAME} Analysis")
     with st.expander("⚙️ Settings", expanded=True):
-        st.caption("ログイン前でもモード・パス・スキャン条件を指定できます。ログイン後も同じ内容がサイドバーに表示されます。")
         render_app_settings(show_header=False)
     st.divider()
-    st.title(f"🔐 {APP_NAME} Login")
+    st.subheader("🔐 Login")
     pwd = st.text_input("Enter Access Key", type="password")
     if st.button("Login"):
         if pwd == ACCESS_KEY:
@@ -609,7 +607,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # --- メイン画面 ---
-st.title(f"🚀 {APP_NAME}")
+st.title("CVI Results")
 st.markdown(f"*Developed by {DEVELOPER}*")
 
 # サイドバー設定（ログイン画面の expander と同一 UI）
@@ -646,7 +644,7 @@ if uploaded_files:
 
     if analysis_mode == "自動解析":
         if st.session_state.get("auto_analysis_complete"):
-            st.success("🎉 自動解析が完了しました（fovea 指定・3mm ROI 本図・ROI 依存 CSV 項目は出力されません）")
+            st.success("🎉自動解析が完了しました")
             df = pd.DataFrame(st.session_state.results)
             st.dataframe(df)
 
@@ -719,7 +717,7 @@ if uploaded_files:
                         {
                             "Parameter": [
                                 "App",
-                                "Author",
+                                "Analyst",
                                 "Date",
                                 "Time",
                                 "Analysis mode",
@@ -764,13 +762,8 @@ if uploaded_files:
                         st.rerun()
         else:
             st.subheader("自動解析")
-            st.info(
-                "DeepGPET で脈絡膜マスクを推定し、マスク面積（mm²）・全幅内腔面積・"
-                "プレーン可視化のみを一括出力します。fovea のクリックは不要です。"
-            )
             st.caption(
-                "CSV: Image ID, Total mask area (mm2), Fluid area (mm2), D-Fluid area (mm2) のみ。"
-                " 画像: CVI_plain_*, DCVI_plain_*, CVI_Dlumen_overlay_* のみ（CVI_* / DCVI_* ROI 本図は含みません）。"
+                "CSV: Image ID, Total mask area (mm2), Fluid area (mm2), D-Fluid area (mm2)"
             )
             st.markdown(f"**対象画像数:** {len(uploaded_files)}")
             if st.button("▶ 自動解析を実行", type="primary", key="auto_run_all_button"):
@@ -1008,7 +1001,7 @@ if uploaded_files:
                 
                     # パラメータログ追加
                     log_df = pd.DataFrame({
-                        'Parameter': ['App', 'Author', 'Date', 'Time', 'Analysis mode',
+                        'Parameter': ['App', 'Analyst', 'Date', 'Time', 'Analysis mode',
                                       'Scan Width', 'Depth Range'],
                         'Value': [APP_NAME, author, datetime.now().strftime('%Y-%m-%d'),
                                  datetime.now().strftime('%H:%M:%S'), 'マニュアル解析',
