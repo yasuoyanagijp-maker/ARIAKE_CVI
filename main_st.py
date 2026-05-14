@@ -57,6 +57,18 @@ APP_NAME = "ARIAKE_CVI"
 DEVELOPER = "Team Yanagi"
 ACCESS_KEY = "ariake2024"  # 公開時に共有するアクセスキー（必要に応じて変更してください）
 
+# --- 深さ依存 Niblack（ROI = DeepGPET の脈絡膜マスクのみ。fovea 周辺の数 mm 解析帯とは別物）---
+# True: マスク内で浅い側（画像上端寄り＝通常 RPE 側、d が小さい）から下方向へ NIBLACK_INNER_DEPTH_FRAC の範囲に k_inner
+# False: 縦反転 B-scan 等で浅いが d 大のとき用に、d > (1 - NIBLACK_INNER_DEPTH_FRAC) に k_inner
+NIBLACK_STRICT_K_ON_SHALLOW_LOW_D = True
+# 脈絡膜マスク（ROI）内の厚み方向で、浅い側から何割を k_inner とするか（上から 1/3 = 0.333...）
+NIBLACK_INNER_DEPTH_FRAC = 1.0 / 3.0
+# マスク内浅い帯 k_inner / それ以外 k_outer（inner だけ上げる場合はここを調整）
+NIBLACK_K_OUTER = 0.2
+NIBLACK_K_INNER = 0.12
+# 二値化後の median。0 または 1 以下でスキップ（現在はスキップ）
+LUMEN_BINARY_MEDIAN_KSIZE = 0
+
 # ==========================================
 # 解析ロジック (CVIProcessor)
 # ==========================================
@@ -67,6 +79,84 @@ class CVIProcessor:
     def initialize_model(self):
         if self.model is None:
             self.model = inference.DeepGPET()
+
+    @staticmethod
+    def choroid_depth_fraction_map(mask):
+        """
+        DeepGPET 脈絡膜マスク（本アプリでいう ROI＝セグメンテーション領域）内の正規化深さ [0,1]。
+        各列 x でマスクの上端 y_top から下端 y_bot までを 1 としたときの相対深さ。
+        0 = マスク上端（画像では浅い方＝通常は RPE 寄り）、1 = マスク下端（深い方）。
+        画像全体の高さは使わない。
+        """
+        h, w = mask.shape
+        depth = np.zeros((h, w), dtype=np.float32)
+        y_top = np.full(w, -1, np.int32)
+        y_bot = np.full(w, -1, np.int32)
+        m = mask > 0
+        for x in range(w):
+            ys = np.flatnonzero(m[:, x])
+            if ys.size:
+                y_top[x], y_bot[x] = int(ys.min()), int(ys.max())
+        last_t, last_b = -1, -1
+        for x in range(w):
+            if y_top[x] >= 0:
+                last_t, last_b = y_top[x], y_bot[x]
+            elif last_t >= 0:
+                y_top[x], y_bot[x] = last_t, last_b
+        last_t, last_b = -1, -1
+        for x in range(w - 1, -1, -1):
+            if y_top[x] >= 0:
+                last_t, last_b = y_top[x], y_bot[x]
+            elif last_t >= 0:
+                y_top[x], y_bot[x] = last_t, last_b
+        rows = np.arange(h, dtype=np.float32)
+        for x in range(w):
+            if y_top[x] < 0:
+                continue
+            th = max(float(y_bot[x] - y_top[x]), 1.0)
+            depth[:, x] = np.clip((rows - float(y_top[x])) / th, 0.0, 1.0)
+        depth[~m] = 0.0
+        return depth
+
+    def niblack_threshold_depth_adaptive_k(
+        self,
+        img,
+        mask,
+        radius=15,
+        k_outer=NIBLACK_K_OUTER,
+        k_inner=NIBLACK_K_INNER,
+        inner_depth_frac=(1.0 / 3.0),
+        strict_k_on_shallow_low_d=True,
+    ):
+        """
+        Niblack の k を、DeepGPET 脈絡膜マスク（ROI）内の相対深さ d で切替する。
+        d は choroid_depth_fraction_map（マスク上端=0、下端=1）。画像全体や fovea 数 mm 帯ではない。
+
+        strict_k_on_shallow_low_d=True: マスク内の浅い側から inner_depth_frac（例: 上 1/3）に k_inner。
+        False: 縦反転等で浅いが d が大きいとき、d > (1-inner_depth_frac) に k_inner。
+
+        k_map はマスク内だけ上書き（マスク外は k_outer のまま計算し、最後に mask で除去）。
+        """
+        img_float = img.astype(np.float32)
+        kernel_size = 2 * radius + 1
+        mean = cv2.blur(img_float, (kernel_size, kernel_size), borderType=cv2.BORDER_REFLECT)
+        mean_sq = cv2.blur(img_float ** 2, (kernel_size, kernel_size), borderType=cv2.BORDER_REFLECT)
+        variance = mean_sq - (mean ** 2)
+        std_dev = np.sqrt(np.maximum(variance, 0))
+        d = self.choroid_depth_fraction_map(mask)
+        m = mask > 0
+        frac = float(inner_depth_frac)
+        k_map = np.full(img_float.shape[:2], k_outer, dtype=np.float32)
+        if strict_k_on_shallow_low_d:
+            inner_sel = m & (d < frac)
+        else:
+            inner_sel = m & (d > (1.0 - frac))
+        k_map[inner_sel] = float(k_inner)
+        threshold = mean + k_map * std_dev
+        threshold = np.clip(threshold, 0.0, 255.0)
+        binary = (img_float < threshold).astype(np.uint8) * 255
+        binary[mask == 0] = 0
+        return binary
     
     def niblack_threshold(self, img, mask, radius=15, k=0.2):
         img_float = img.astype(np.float32)
@@ -134,13 +224,28 @@ class CVIProcessor:
             else:
                 mask = np.zeros((height, width), dtype=np.uint8)
             
-            # Denoising & Thresholding
+            # 深さ依存 k
             denoised_img = self.denoise_image_global(img_gray)
-            global_lum_mask = self.niblack_threshold(img_gray, mask)
-            global_dlum_mask = self.niblack_threshold(denoised_img, mask)
+            global_lum_mask = self.niblack_threshold_depth_adaptive_k(
+                img_gray,
+                mask,
+                k_outer=NIBLACK_K_OUTER,
+                k_inner=NIBLACK_K_INNER,
+                inner_depth_frac=NIBLACK_INNER_DEPTH_FRAC,
+                strict_k_on_shallow_low_d=NIBLACK_STRICT_K_ON_SHALLOW_LOW_D,
+            )
+            global_dlum_mask = self.niblack_threshold_depth_adaptive_k(
+                denoised_img,
+                mask,
+                k_outer=NIBLACK_K_OUTER,
+                k_inner=NIBLACK_K_INNER,
+                inner_depth_frac=NIBLACK_INNER_DEPTH_FRAC,
+                strict_k_on_shallow_low_d=NIBLACK_STRICT_K_ON_SHALLOW_LOW_D,
+            )
             
-            global_lum_mask = cv2.medianBlur(global_lum_mask, 3)
-            global_dlum_mask = cv2.medianBlur(global_dlum_mask, 3)
+            if LUMEN_BINARY_MEDIAN_KSIZE and LUMEN_BINARY_MEDIAN_KSIZE >= 3:
+                global_lum_mask = cv2.medianBlur(global_lum_mask, int(LUMEN_BINARY_MEDIAN_KSIZE))
+                global_dlum_mask = cv2.medianBlur(global_dlum_mask, int(LUMEN_BINARY_MEDIAN_KSIZE))
             global_lum_mask[mask == 0] = 0
             global_dlum_mask[mask == 0] = 0
             
