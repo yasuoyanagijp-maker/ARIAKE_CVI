@@ -256,24 +256,44 @@ class CVIProcessor:
             dtca30, dct30, dcvi30, _, dlum30_roi = self.get_roi_metrics(global_dlum_mask, mask, fovea_x, scale_px_per_mm_h, scale_px_per_mm_v, 3.0)
         
             # Generate visualization images for download/preview
-            def create_vis_buffer(base_img, l_mask_roi):
-                vis = cv2.cvtColor(base_img, cv2.COLOR_GRAY2RGB)
+            def roi_3mm_horizontal_bounds():
                 roi_w_px = int(3.0 * scale_px_per_mm_h)
                 rx_start = max(0, int(fovea_x - roi_w_px / 2))
                 rx_end = min(width, rx_start + roi_w_px)
+                return rx_start, rx_end
+
+            def apply_lumen_binarization_overlay(vis_rgb, l_mask_roi):
+                """3.0mm ROI 内の内腔二値化を黒で重ねる（CVI/DCVI 本図用）"""
+                rx_start, rx_end = roi_3mm_horizontal_bounds()
                 full_v_mask = np.zeros_like(mask)
-                if l_mask_roi is not None: full_v_mask[:, rx_start:rx_end] = l_mask_roi
-                vis[full_v_mask > 0] = [0, 0, 0] 
+                if l_mask_roi is not None:
+                    full_v_mask[:, rx_start:rx_end] = l_mask_roi
+                vis_rgb[full_v_mask > 0] = [0, 0, 0]
+
+            def create_vis_buffer(base_img, l_mask_roi):
+                vis = cv2.cvtColor(base_img, cv2.COLOR_GRAY2RGB)
+                apply_lumen_binarization_overlay(vis, l_mask_roi)
                 contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                cv2.drawContours(vis, contours, -1, (0, 255, 255), 1) 
-                cv2.circle(vis, (int(fovea_x), int(fovea_y)), 8, (0, 255, 0), -1) 
+                cv2.drawContours(vis, contours, -1, (0, 255, 255), 1)
+                cv2.circle(vis, (int(fovea_x), int(fovea_y)), 8, (0, 255, 0), -1)
+                rx_start, rx_end = roi_3mm_horizontal_bounds()
                 cv2.line(vis, (rx_start, 0), (rx_start, height), (255, 0, 0), 2)
                 cv2.line(vis, (rx_end, 0), (rx_end, height), (255, 0, 0), 2)
                 is_success, buffer = cv2.imencode(".jpg", vis)
                 return buffer.tobytes() if is_success else None
 
+            def create_vis_binarization_only_fullwidth(base_img, global_lumen_binary):
+                """内腔binarizationの黒overlayのみ。横はスキャン全幅（3mm ROIに限定しない）。縦線・輪郭・foveaなし（ダウンロード用）"""
+                vis = cv2.cvtColor(base_img, cv2.COLOR_GRAY2RGB)
+                vis[global_lumen_binary > 0] = [0, 0, 0]
+                ok, buf = cv2.imencode(".jpg", vis)
+                return buf.tobytes() if ok else None
+
             vis_cvi = create_vis_buffer(img_gray, lum30_roi)
             vis_dcvi = create_vis_buffer(denoised_img, dlum30_roi)
+
+            plain_cvi = create_vis_binarization_only_fullwidth(img_gray, global_lum_mask)
+            plain_dcvi = create_vis_binarization_only_fullwidth(denoised_img, global_dlum_mask)
 
             stats = {
                 'Image ID': filename,
@@ -286,10 +306,10 @@ class CVIProcessor:
                 'CVI 3.0mm (%)': round(cvi30, 2),
                 'D-CVI 3.0mm (%)': round(dcvi30, 2)
             }
-            return stats, vis_cvi, vis_dcvi
+            return stats, vis_cvi, vis_dcvi, plain_cvi, plain_dcvi
         except Exception as e:
             st.error(f"❌ Error processing {filename}: {str(e)}")
-            return None, None, None
+            return None, None, None, None, None
 
 # ==========================================
 # Streamlit UI
@@ -621,7 +641,7 @@ if uploaded_files:
                             st.session_state.processor.initialize_model()
                     
                     with st.spinner(f"🔬 Analyzing {filename}..."):
-                        res, v_cvi, v_dcvi = st.session_state.processor.process_image(
+                        res, v_cvi, v_dcvi, p_cvi, p_dcvi = st.session_state.processor.process_image(
                             pil_img, filename, fx, fy, scan_w, depth_r
                         )
                         
@@ -631,6 +651,10 @@ if uploaded_files:
                                 st.session_state.vis_files[f"CVI_{filename}"] = v_cvi
                             if v_dcvi is not None:
                                 st.session_state.vis_files[f"DCVI_{filename}"] = v_dcvi
+                            if p_cvi is not None:
+                                st.session_state.vis_files[f"CVI_plain_{filename}"] = p_cvi
+                            if p_dcvi is not None:
+                                st.session_state.vis_files[f"DCVI_plain_{filename}"] = p_dcvi
                             st.session_state.current_idx += 1
                             st.rerun()
                         else:
