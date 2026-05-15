@@ -205,6 +205,19 @@ class CVIProcessor:
         ct_um = (tca_mm2 / (actual_roi_width_px / scale_px_per_mm_h)) * 1000
         return tca_mm2, ct_um, cvi, la_mm2, roi_lum
 
+    @staticmethod
+    def full_scan_cvi_percent(fluid_area_mm2, total_mask_area_mm2):
+        """マスク全域: 内腔二値化面積 / 脈絡膜マスク面積 × 100（CVI_plain と同じ定義）。"""
+        return (fluid_area_mm2 / total_mask_area_mm2 * 100.0) if total_mask_area_mm2 > 0 else 0.0
+
+    @staticmethod
+    def full_scan_ct_um(total_mask_area_mm2, scan_width_mm):
+        """
+        マスク全域の平均 CT (µm)。ROI の CT と同型に total_mask_area_mm² / スキャン横幅(mm) × 1000。
+        （横方向に伸びたマスク面積をスキャン幅で割った厚み相当）
+        """
+        return (total_mask_area_mm2 / scan_width_mm * 1000.0) if scan_width_mm > 0 else 0.0
+
     def _prepare_deepgpet_lumen(self, pil_img, scan_width_mm, depth_range_mm):
         """
         DeepGPET セグメンテーションと全幅内腔二値マスクまで（fovea 非依存）。
@@ -266,7 +279,7 @@ class CVIProcessor:
     def process_image_automatic(self, pil_img, filename, scan_width_mm, depth_range_mm):
         """
         自動解析: fovea / 3mm ROI 指標・CVI_* / DCVI_* 本図は出さない。
-        CSV は Image ID + Total mask area + Fluid / D-Fluid (mm2) のみ。
+        CSV は Image ID + CVI full / CT full + Total mask area + Fluid / D-Fluid (mm2)。
         画像は CVI_plain / DCVI_plain / CVI_Dlumen_overlay のみ。
         """
         try:
@@ -276,11 +289,15 @@ class CVIProcessor:
             total_mask_area_mm2 = float(np.sum(mask > 0)) * pixel_area_mm2
             fluid_area_mm2 = float(np.sum(global_lum_mask > 0)) * pixel_area_mm2
             d_fluid_area_mm2 = float(np.sum(global_dlum_mask > 0)) * pixel_area_mm2
+            cvi_full_pct = self.full_scan_cvi_percent(fluid_area_mm2, total_mask_area_mm2)
+            ct_full_um = self.full_scan_ct_um(total_mask_area_mm2, scan_width_mm)
             plain_cvi = self.encode_binarization_overlay_jpg(img_gray, global_lum_mask)
             plain_dcvi = self.encode_binarization_overlay_jpg(denoised_img, global_dlum_mask)
             hybrid = self.encode_binarization_overlay_jpg(img_gray, global_dlum_mask)
             stats = {
                 'Image ID': filename,
+                'CVI full (%)': round(cvi_full_pct, 2),
+                'CT full (um)': round(ct_full_um, 2),
                 'Total mask area (mm2)': round(total_mask_area_mm2, 4),
                 'Fluid area (mm2)': round(fluid_area_mm2, 4),
                 'D-Fluid area (mm2)': round(d_fluid_area_mm2, 4),
@@ -310,7 +327,9 @@ class CVIProcessor:
             total_mask_area_mm2 = float(np.sum(mask > 0)) * pixel_area_mm2
             fluid_area_mm2 = float(np.sum(global_lum_mask > 0)) * pixel_area_mm2
             d_fluid_area_mm2 = float(np.sum(global_dlum_mask > 0)) * pixel_area_mm2
-        
+            cvi_full_pct = self.full_scan_cvi_percent(fluid_area_mm2, total_mask_area_mm2)
+            ct_full_um = self.full_scan_ct_um(total_mask_area_mm2, scan_width_mm)
+
             # Generate visualization images for download/preview
             def roi_3mm_horizontal_bounds():
                 roi_w_px = int(3.0 * scale_px_per_mm_h)
@@ -356,6 +375,8 @@ class CVIProcessor:
                 'CT 3.0mm (um)': round(ct30, 2),
                 'CVI 3.0mm (%)': round(cvi30, 2),
                 'D-CVI 3.0mm (%)': round(dcvi30, 2),
+                'CVI full (%)': round(cvi_full_pct, 2),
+                'CT full (um)': round(ct_full_um, 2),
                 'Total mask area (mm2)': round(total_mask_area_mm2, 4),
                 'Fluid area (mm2)': round(fluid_area_mm2, 4),
                 'D-Fluid area (mm2)': round(d_fluid_area_mm2, 4),
@@ -445,8 +466,9 @@ def render_app_settings(*, show_header=True):
         ["自動解析", "マニュアル解析"],
         key="settings_analysis_mode",
         help=(
-            "自動解析: fovea・3mm ROI を指定せず、Total mask area / Fluid / D-Fluid (mm²) と "
-            "CVI_plain / DCVI_plain / CVI_Dlumen_overlay のみを出力します。"
+            "自動解析: fovea・3mm ROI を指定せず、CVI full (%)・CT full (µm)、"
+            "Total mask area / Fluid / D-Fluid (mm²) と "
+            "CVI_plain / DCVI_plain / CVI_Dlumen_overlay を出力します。"
         ),
     )
 
@@ -763,7 +785,8 @@ if uploaded_files:
         else:
             st.subheader("自動解析")
             st.caption(
-                "CSV: Image ID, Total mask area (mm2), Fluid area (mm2), D-Fluid area (mm2)"
+                "CSV: Image ID, CVI full (%), CT full (um), Total mask area (mm2), "
+                "Fluid area (mm2), D-Fluid area (mm2)"
             )
             st.markdown(f"**対象画像数:** {len(uploaded_files)}")
             if st.button("▶ 自動解析を実行", type="primary", key="auto_run_all_button"):
