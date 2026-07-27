@@ -1,0 +1,39 @@
+件名: 【ARIAKE_CVI】macOSセットアップ用スクリプトのご送付
+
+お世話になっております。
+先日お送りした ARIAKE_CVI フォルダについて、macOS で仮想環境を作り直すためのセットアップスクリプト（setup_mac.sh）をお送りします。
+
+【手順】
+1. 添付の setup_mac.sh を、すでに受け取られた ARIAKE_CVI フォルダ内に置いてください。
+   （main_st.py と同じ階層です）
+
+2. ターミナルを開き、次を実行してください。
+
+   cd 「ARIAKE_CVIフォルダのパス」
+   bash setup_mac.sh
+
+   ※完了まで数分かかることがあります。
+
+3. セットアップ完了後、Finder で ARIAKE_CVI.app を開いてください。
+   （ターミナルなら: open ARIAKE_CVI.app）
+
+【うまく開けない場合】
+・「開発元を確認できないため開けません」と出る場合:
+  ARIAKE_CVI.app を右クリック →「開く」
+  または システム設定 → プライバシーとセキュリティ →「このまま開く」
+
+・setup_mac.sh 実行時に「python3.12 が見つかりません」と出る場合:
+  Homebrew で Python 3.12 を入れてから、もう一度 bash setup_mac.sh を実行してください。
+
+  # Apple Silicon
+  brew install python@3.12
+  echo 'export PATH="/opt/homebrew/opt/python@3.12/bin:$PATH"' >> ~/.zprofile
+  source ~/.zprofile
+
+  # Intel Mac
+  brew install python@3.12
+  echo 'export PATH="/usr/local/opt/python@3.12/bin:$PATH"' >> ~/.zprofile
+  source ~/.zprofile
+
+ご不明点があればお知らせください。
+よろしくお願いいたします。
