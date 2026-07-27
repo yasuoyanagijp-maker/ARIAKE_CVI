@@ -130,6 +130,28 @@ Windows では `run.bat`（`app_launcher.py` 経由）でも可。
 
 ---
 
+## Windows 配布
+
+共同研究者への受け渡しは、次の **Path A（推奨・本 Mac からも作成可）** を使います。埋め込み Python / `.exe` の自己完結パッケージ（Path B）は **Windows マシン上でのビルドが必要**です（macOS からは作成できません）。
+
+### Path A — 共同研究者向けセットアップ（推奨）
+
+ソース一式＋ `setup.bat` / `run.bat` を渡し、受け手が自分の Windows で依存関係を入れる方法です（`venv/` / `runtime/` / `dist/` は含めない）。
+
+1. **[GitHub Releases](https://github.com/yasuoyanagijp-maker/ARIAKE_CVI/releases)** の `ARIAKE_CVI-windows-setup-*.zip` をダウンロードして展開（または同等のソース一式を手渡し）
+2. 受け手: **Python 3.11 または 3.12** を入れる（[python.org](https://www.python.org/downloads/)）。インストール時に **Add Python to PATH** を必ずチェック
+3. 展開フォルダ内で **`setup.bat`** をダブルクリック（依存関係インストール＋デスクトップショートカット作成）
+4. デスクトップの **ARIAKE_CVI**、または **`run.bat`** で起動
+
+詳細な案内文は [`WINDOWS_SETUP_JA.txt`](WINDOWS_SETUP_JA.txt) を参照してください。  
+※ Windows 受け手向けには `setup.bat` / `run.bat` を使います。`setup_mac.sh` や `macos/build_dist.sh` は不要です。
+
+### Path B — 自己完結パッケージ（要 Windows PC）
+
+埋め込み Python や PyInstaller の `.exe` は、PyTorch の Windows wheel 等のため **Windows 上でビルド**してください。現状リポジトリに Windows 用 `build_dist` は未整備です。
+
+---
+
 ## macOS 配布
 
 共同研究者への受け渡しは、次の **Path A（推奨）** か **Path B（自己完結 ZIP）** を使います。`runtime/` と `dist/` は gitignore 対象のため **コミットしないでください**（ローカルビルド成果物です）。
@@ -228,6 +250,10 @@ streamlit run main_st.py
 ```
 
 Or on Windows: `run.bat` → `app_launcher.py` (browser disconnect can stop the server).
+
+## Windows distribution
+
+See the Japanese section **「Windows 配布」** above. Path A (recommended): source zip with `setup.bat` / `run.bat` (recipient needs Python 3.11/3.12). Self-contained Windows packages require a Windows build machine. See `WINDOWS_SETUP_JA.txt`.
 
 ## macOS distribution
 
