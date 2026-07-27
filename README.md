@@ -128,6 +128,59 @@ Windows では `run.bat`（`app_launcher.py` 経由）でも可。
 
 ---
 
+---
+
+## macOS 配布
+
+共同研究者への受け渡しは、次の **Path A（推奨）** か **Path B（自己完結 ZIP）** を使います。`runtime/` と `dist/` は gitignore 対象のため **コミットしないでください**（ローカルビルド成果物です）。
+
+### Path A — 共同研究者向けセットアップ（手渡し推奨）
+
+軽量なソース一式を渡し、受け手が自分の Mac で仮想環境を作る方法です。
+
+1. **配布フォルダ**から `venv/`・`runtime/`・`dist/` を除く（ソース・`setup_mac.sh`・`ARIAKE_CVI.app` は含める）
+2. 受け手: **Python 3.12** を入れる（Homebrew 可）
+3. プロジェクト直下で:
+
+```bash
+bash setup_mac.sh
+```
+
+4. Finder で **`ARIAKE_CVI.app`** を開く（または `open ARIAKE_CVI.app`）
+
+メール案内の文面は [`macos/SETUP_MAIL_JA.txt`](macos/SETUP_MAIL_JA.txt) を参照してください。初回に Gatekeeper で止められた場合は、アプリを **右クリック → 開く** してください。
+
+### Path B — 自己完結 ZIP（埋め込み Python）
+
+ビルドしたマシンと同じ CPU アーキテクチャ向けの、ランタイム込み ZIP です。
+
+**ビルド（配布元）**
+
+```bash
+bash macos/build_dist.sh
+```
+
+成果物: `dist/ARIAKE_CVI-macos-<arch>-v<version>.zip`  
+（`<version>` は `ARIAKE_CVI.app` の Info.plist。`<arch>` は `arm64` または `x86_64`）
+
+大きな ZIP はメール添付より **[GitHub Releases](https://github.com/yasuoyanagijp-maker/ARIAKE_CVI/releases)** からのダウンロードを推奨します。
+
+**受け手**
+
+1. ZIP を展開し、フォルダ一式を同じ場所に置く（`.app` と `runtime/` を分離しない）
+2. 初回: `ARIAKE_CVI.app` を **右クリック → 開く**。拒否される場合:
+
+```bash
+xattr -cr /path/to/展開フォルダ
+```
+
+3. その後 `.app` を開く
+
+**注意**
+
+- Apple Silicon（arm64）と Intel（x86_64）は **別ビルド** が必要です
+- 現状は **公証（notarization）未実施** のため、初回は上記の手順が必要なことがあります
+
 ## 注意事項
 
 - **`deepgpet/`** が `main_st.py` と同階層に必要です。  
@@ -175,6 +228,10 @@ streamlit run main_st.py
 ```
 
 Or on Windows: `run.bat` → `app_launcher.py` (browser disconnect can stop the server).
+
+## macOS distribution
+
+See the Japanese section **「macOS 配布」** above for Path A (`setup_mac.sh` handoff) and Path B (self-contained ZIP via `macos/build_dist.sh` / GitHub Releases). Do not commit `runtime/` or `dist/`.
 
 ## Outputs (summary)
 
