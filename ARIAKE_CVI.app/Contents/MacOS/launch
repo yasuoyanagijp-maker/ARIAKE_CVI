@@ -1,0 +1,54 @@
+#!/bin/bash
+# ARIAKE_CVI.app — 配布用 runtime/python 優先、なければ開発用 ./venv
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$PROJECT_ROOT"
+
+if [[ -x "$PROJECT_ROOT/runtime/python/bin/python3.12" ]]; then
+	PYTHON="$PROJECT_ROOT/runtime/python/bin/python3.12"
+elif [[ -x "$PROJECT_ROOT/runtime/venv/bin/python" ]]; then
+	PYTHON="$PROJECT_ROOT/runtime/venv/bin/python"
+elif [[ -x "$PROJECT_ROOT/venv/bin/python" ]]; then
+	PYTHON="$PROJECT_ROOT/venv/bin/python"
+else
+	PYTHON=""
+fi
+
+LAUNCHER="$PROJECT_ROOT/app_launcher.py"
+LOG_DIR="$HOME/Library/Logs"
+LOG_FILE="$LOG_DIR/ARIAKE_CVI.log"
+
+alert() {
+	osascript -e "display alert \"ARIAKE_CVI\" message \"$1\" as warning" 2>/dev/null || true
+}
+
+if [[ -z "$PYTHON" ]]; then
+	alert "実行環境が見つかりません。
+
+配布 ZIP を展開したフォルダ一式（ARIAKE_CVI.app と runtime/）が揃っているか確認してください。
+
+開発者向け再ビルド:
+cd \"$PROJECT_ROOT\"
+bash macos/build_dist.sh"
+	exit 1
+fi
+
+if [[ ! -f "$LAUNCHER" ]]; then
+	alert "app_launcher.py が見つかりません: $LAUNCHER"
+	exit 1
+fi
+
+mkdir -p "$LOG_DIR"
+
+if lsof -iTCP:8501 -sTCP:LISTEN -t >/dev/null 2>&1; then
+	open "http://localhost:8501"
+	exit 0
+fi
+
+osascript <<APPLESCRIPT
+tell application "Terminal"
+	activate
+	do script "cd $(printf '%q' "$PROJECT_ROOT") && clear && echo 'ARIAKE_CVI を起動しています...' && echo 'ブラウザをすべて閉じるとサーバーが終了します。' && echo 'ログ: $LOG_FILE' && echo '' && exec $(printf '%q' "$PYTHON") $(printf '%q' "$LAUNCHER") 2>&1 | tee -a $(printf '%q' "$LOG_FILE")"
+end tell
+APPLESCRIPT

@@ -25,4 +25,5 @@ Thumbs.db
 # Distribution / packaging
 dist/
 build/
+runtime/
 *.egg-info/
