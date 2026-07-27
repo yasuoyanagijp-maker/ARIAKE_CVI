@@ -1,0 +1,16 @@
+ARIAKE_CVI — Windows セットアップ（Path A）
+========================================
+
+前提: Windows 10/11、Python 3.11 または 3.12（3.14 は非推奨）
+  https://www.python.org/downloads/
+  ※ インストール時に「Add Python to PATH」に必ずチェック
+
+手順:
+1. この ZIP を展開する
+2. 展開した ARIAKE_CVI フォルダ内で setup.bat をダブルクリック
+3. 完了後、デスクトップの「ARIAKE_CVI」ショートカット、または run.bat で起動
+
+メモ:
+- setup.bat / run.bat は受け手向けのセットアップ・起動用です（開発用の macOS ビルドスクリプトではありません）
+- 初回解析時に DeepGPET の重みが自動ダウンロードされます（ネット接続が必要）
+- 自己完結の .exe / 埋め込み Python パッケージは、別途 Windows マシンでのビルドが必要です
